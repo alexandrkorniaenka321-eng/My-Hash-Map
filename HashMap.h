@@ -3,121 +3,85 @@
 #include <utility>
 #include <forward_list>
 #include <vector>
-#include <math.h>
+#include <stdexcept>
 
-template <typename Key,typename Value,typename Hash = std::hash<Key>>
+template <typename Key, typename Value, typename Hash = std::hash<Key>>
 class HashMap
 {
 private:
-	struct Bucket
-	{
-		std::vector<std::forward_list<std::pair<Key, Value>>> collection;
-		size_t capacity;
-		
-		Bucket()
-			: collection(10),capacity(10) { }
 
-		Bucket(size_t size, size_t capacity)
-			:collection(size),capacity(capacity){ }
-
-		Bucket(const Bucket& other)
-			:collection(other.collection),capacity(other.capacity){ }
-
-		Bucket(Bucket&& other) noexcept
-			:collection(std::move(other.collection)),capacity(other.capacity){ }
-
-		const Bucket& operator = (const Bucket& other)
-		{
-			if (this == &other) return *this;
-
-			this->collection = other.collection;
-			this->capacity = other.capacity;
-			
-			return *this;
-		}
-
-		const Bucket& operator = (Bucket&& other) noexcept
-		{
-			if (this == &other) return *this;
-
-			this->collection = std::move(other.collection);
-
-			if (this->capacity < other.capacity)
-			{
-				this->capacity = other.capacity;
-			}
-			return *this;
-		}
-
-		bool add_element(size_t index, Key key, Value value)
-		{
-			if (index >= capacity) 
-				return false;
-
-			collection[index].push_front(std::make_pair(key,value));
-			return true;
-		}
-
-		const Value& find(size_t index,const Key& key) const
-		{
-			for (const auto i : collection[index])
-			{
-				if (key == i.first) return i.second;
-			}
-		}
-
-		void resize_collection(size_t capacity)
-		{
-			collection.resize(capacity);
-			collection.reserve(capacity);
-
-			this->capacity = capacity;
-		}
-	};
-
-	Bucket bucket;
-	Hash hasher;
+	std::vector<std::forward_list<std::pair<Key, Value>>> buckets;
+	size_t capacity;
 	size_t size;
-	size_t n;
+	Hash hasher;
 
 	void rehash()
 	{
-		++n;
-		Bucket new_bucket;
-		new_bucket = std::move(bucket);
+		std::vector<std::forward_list<std::pair<Key, Value>>> new_buckets(capacity *= 2);
 
-		this->bucket = std::move(new_bucket);
-		bucket.resize_collection(bucket.capacity * 2);
+		for (const auto& i : buckets)
+		{
+			for (const auto& j : i)
+			{
+				size_t index = hasher(j.first) % capacity;
+				new_buckets[index].push_front(std::make_pair(j.first, j.second));
+			}
+		}
+		buckets = std::move(new_buckets);
+	}
+
+	void remove(const Key& key,size_t index)
+	{
+		buckets[index].remove_if([&key](const std::pair<Key, Value>& pair) {
+			return key == pair.first;
+		});
+		--size;
 	}
 
 public:
 	HashMap()
-		: bucket(),size(0), hasher(),n(0){ }
+		:size(0),capacity(10),hasher(),buckets(10) {}
 
 
-	void insert(const Key& key ,const Value& value)
+	void insert(const Key& key, const Value& value)
 	{
-		int iterator = 0;
-		for (const auto i : bucket.collection)
+		size_t index = hasher(key) % capacity;
+
+		for (const auto& i : buckets[index])
 		{
-			for (const auto j : bucket.collection[iterator])
-			{
-				if (j.first == key) return;
-			}
-			iterator++;
+			if (i.first == key) return;
 		}
+		buckets[index].push_front(std::make_pair(key, value));
+		++size;
 
-		if(bucket.add_element(hasher(key) % bucket.capacity, key, value)) ++size;
-
-		if (static_cast<double>(size / bucket.capacity) >= 0.7)
+		if (static_cast<double>(size) / capacity >= 0.7)
 		{
 			rehash();
 		}
 	}
 
-	const Value& find(const Key& key) const
+	void erase(const Key& key)
 	{
-		return bucket.find(hasher(key) % static_cast<size_t>((bucket.capacity / pow(2,n))), key);
+		size_t index = hasher(key) % capacity;
+		for (const auto& i : buckets[index])
+		{
+			if (i.first == key)
+			{
+				remove(key, index);
+				return;
+			}
+		}
+		throw std::out_of_range("Key not found");
+	}
+
+	 const Value& find(const Key& key) const
+	{
+		size_t index = hasher(key) % capacity;
+
+		for (const auto& i : buckets[index])
+		{
+			if (i.first == key) return i.second;
+		}
+		throw std::out_of_range("Key not found");
 	}
 };
-
